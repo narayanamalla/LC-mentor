@@ -23,14 +23,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check session
+    // 1. Check if there is a saved mock user first
+    const savedMock = localStorage.getItem('leetcode_mentor_mock_user');
+    if (savedMock) {
+      try {
+        const parsed = JSON.parse(savedMock);
+        if (parsed && parsed.id) {
+          setUser(parsed);
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.error('Failed to parse saved mock user:', e);
+      }
+    }
+
+    // 2. Check Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+      if (session?.user) {
+        setUser(session.user);
+      }
       setLoading(false);
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
+      if (session?.user) {
+        setUser(session.user);
+      } else if (!localStorage.getItem('leetcode_mentor_mock_user')) {
+        setUser(null);
+      }
       setLoading(false);
     });
 
@@ -48,10 +69,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email: email || 'narayanamalla0008@gmail.com',
     };
     setUser(mockUser);
+    localStorage.setItem('leetcode_mentor_mock_user', JSON.stringify(mockUser));
     setLoading(false);
   };
 
   const signOut = async () => {
+    localStorage.removeItem('leetcode_mentor_mock_user');
     await supabase.auth.signOut();
     setUser(null);
   };

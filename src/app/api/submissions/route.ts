@@ -278,9 +278,13 @@ export async function POST(req: Request) {
 
       const similarProblems = notes.related_patterns || [];
 
+      const theory = solRaw?.optimal_solution?.core_observation
+        ? `In ${p.title}, the ${primaryTopic} concept focuses on: ${solRaw.optimal_solution.core_observation} ${solRaw.pattern_recognition || ''}`
+        : `${notes.definition} ${notes.intuition}`;
+
       return {
         topic: `${primaryTopic} | LC ${p.id}: ${p.title}`,
-        theory: notes.definition + '\n\n' + notes.intuition,
+        theory: theory,
         patternRecognition: whenToUseBullets || '1. Contiguous subarray lookup needs.',
         templateCode: getGenericTemplate(primaryTopic),
         bruteForce: bruteForceDesc,
@@ -390,28 +394,74 @@ export async function POST(req: Request) {
       weakTopics.push(...sorted.slice(0, 2).map(([topic]) => topic));
     }
 
-    const recommendations = weakTopics.map(topic => {
-      const t = topic.toLowerCase();
-      if (t.includes('sliding window')) {
-        return `Solve 'Sliding Window Maximum' (LC 239) or 'Minimum Window Substring' (LC 76) to reinforce boundary shrinking logic.`;
+    const recommendations: string[] = [];
+
+    // 1. Add specific recommendations from today's solved problems
+    processedProblems.forEach(p => {
+      const sol = processedSolutions[p.id];
+      if (sol?.similar_problems) {
+        const { similar, harder, easier } = sol.similar_problems;
+        const targetProblem = similar?.[0] || harder?.[0] || easier?.[0];
+        if (targetProblem) {
+          recommendations.push(`Solve '${targetProblem}' (related to ${p.title}) to practice similar ${p.topics.join('/')} patterns.`);
+        }
       }
-      if (t.includes('prefix sum')) {
-        return `Solve 'Subarray Sum Equals K' (LC 560) to master subarray index difference lookups.`;
-      }
-      if (t.includes('two pointer')) {
-        return `Solve '3Sum' (LC 15) to practice multi-pointer convergence patterns.`;
-      }
-      if (t.includes('binary search')) {
-        return `Solve 'Search in Rotated Sorted Array' (LC 33) to verify binary partition conditions.`;
-      }
-      if (t.includes('graph')) {
-        return `Solve 'Number of Islands' (LC 200) to understand connected component traversals.`;
-      }
-      if (t.includes('dynamic programming')) {
-        return `Solve 'Coin Change' (LC 322) to practice bottom-up state transition relations.`;
-      }
-      return `Solve 2 more medium difficulty problems on ${topic} to master the pattern.`;
     });
+
+    // 2. Add weak topic recommendations if we need more to fill the list (up to 3)
+    weakTopics.forEach(topic => {
+      if (recommendations.length >= 3) return;
+      const t = topic.toLowerCase();
+      let recText = '';
+
+      if (t.includes('sliding window')) {
+        recText = `Solve 'Sliding Window Maximum' (LC 239) or 'Minimum Window Substring' (LC 76) to reinforce boundary shrinking logic.`;
+      } else if (t.includes('prefix sum')) {
+        recText = `Solve 'Subarray Sum Equals K' (LC 560) to master subarray index difference lookups.`;
+      } else if (t.includes('two pointer') || t.includes('two-pointer')) {
+        recText = `Solve '3Sum' (LC 15) to practice multi-pointer convergence patterns.`;
+      } else if (t.includes('binary search')) {
+        recText = `Solve 'Search in Rotated Sorted Array' (LC 33) to verify binary partition conditions.`;
+      } else if (t.includes('graph') || t.includes('dfs') || t.includes('bfs') || t.includes('depth-first search') || t.includes('breadth-first search')) {
+        recText = `Solve 'Number of Islands' (LC 200) to understand connected component traversals.`;
+      } else if (t.includes('dynamic programming') || t.includes('dp')) {
+        recText = `Solve 'Coin Change' (LC 322) to practice bottom-up state transition relations.`;
+      } else if (t.includes('matrix')) {
+        recText = `Solve 'Spiral Matrix' (LC 54) or 'Rotate Image' (LC 48) to reinforce 2D grid index manipulation.`;
+      } else if (t.includes('math')) {
+        recText = `Solve 'Next Greater Element III' (LC 556) or 'Integer to Roman' (LC 12) to practice place-value arithmetic.`;
+      } else if (t.includes('greedy')) {
+        recText = `Solve 'Gas Station' (LC 134) or 'Queue Reconstruction by Height' (LC 406) to master greedy choice properties.`;
+      } else if (t.includes('tree') || t.includes('binary tree')) {
+        recText = `Solve 'Binary Tree Maximum Path Sum' (LC 124) or 'Lowest Common Ancestor' (LC 236) to practice tree traversal patterns.`;
+      } else if (t.includes('backtracking')) {
+        recText = `Solve 'Subsets' (LC 78) or 'Word Search' (LC 79) to master state space search and pruning.`;
+      } else if (t.includes('heap') || t.includes('priority queue')) {
+        recText = `Solve 'Merge k Sorted Lists' (LC 23) to understand heap sorting and selection.`;
+      } else if (t.includes('hash table') || t.includes('hash map')) {
+        recText = `Solve 'Group Anagrams' (LC 49) to practice key-value lookups.`;
+      } else if (t.includes('string')) {
+        recText = `Solve 'Longest Palindromic Substring' (LC 5) to master string manipulation.`;
+      } else if (t.includes('trie')) {
+        recText = `Solve 'Implement Trie (Prefix Tree)' (LC 208) to master prefix-based search.`;
+      } else if (t.includes('union find') || t.includes('disjoint set')) {
+        recText = `Solve 'Number of Operations to Make Network Connected' (LC 1319) to practice equivalence relations.`;
+      } else if (t.includes('monotonic stack') || t.includes('monotonic queue')) {
+        recText = `Solve 'Daily Temperatures' (LC 739) or 'Largest Rectangle in Histogram' (LC 84) to master nearest greater/smaller element queries.`;
+      } else {
+        recText = `Solve similar medium-difficulty problems tagged with '${topic}' to solidify your grasp on this pattern.`;
+      }
+
+      // Avoid adding duplicate recommendation texts
+      if (!recommendations.includes(recText)) {
+        recommendations.push(recText);
+      }
+    });
+
+    // If still have less than 3, fill with a default recommendation
+    while (recommendations.length < 3) {
+      recommendations.push('Keep revising previous topic summaries and practice templates to build muscle memory.');
+    }
 
     // Refetch history to get updated counts
     const { data: updatedHistory } = await supabaseAdmin
