@@ -121,9 +121,27 @@ export default function Dashboard() {
         .map(id => parseInt(id.trim()))
         .filter(id => !isNaN(id));
     } else if (leetcodeUsername.trim()) {
-      // Simulate LeetCode sync (fetching top list for presentation)
-      toast.loading('Syncing problems from LeetCode account...');
-      problemsToSubmit = [560, 76, 3]; // standard demonstration list
+      const toastId = toast.loading('Syncing problems from LeetCode account...');
+      try {
+        const syncRes = await fetch(`/api/leetcode-sync?username=${encodeURIComponent(leetcodeUsername.trim())}`);
+        if (!syncRes.ok) {
+          const errData = await syncRes.json();
+          throw new Error(errData.error || 'Failed to sync LeetCode profile');
+        }
+        const syncData = await syncRes.json();
+        problemsToSubmit = syncData.problems || [];
+        if (problemsToSubmit.length === 0) {
+          toast.dismiss(toastId);
+          toast.error('No recently accepted submissions found for this LeetCode username.');
+          return;
+        }
+        toast.dismiss(toastId);
+        toast.success(`Synced ${problemsToSubmit.length} recently solved problems!`);
+      } catch (err: any) {
+        toast.dismiss(toastId);
+        toast.error(err.message || 'Failed to fetch LeetCode submissions');
+        return;
+      }
     }
 
     if (problemsToSubmit.length === 0) {

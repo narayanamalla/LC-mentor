@@ -110,3 +110,118 @@ export async function getProblemFromCatalog(problemId: number): Promise<CatalogP
   // Fallback to static catalog
   return PROBLEMS_CATALOG[problemId] || null;
 }
+
+export async function getProblemIdFromSlug(slug: string): Promise<number | null> {
+  try {
+    if (!leetcodeAllProblemsCache) {
+      console.log('Fetching problems index from LeetCode...');
+      const response = await fetchJson('https://leetcode.com/api/problems/all/');
+      if (response && response.stat_status_pairs) {
+        leetcodeAllProblemsCache = response.stat_status_pairs;
+      }
+    }
+
+    if (leetcodeAllProblemsCache) {
+      const found = leetcodeAllProblemsCache.find((p: any) => p.stat.question__title_slug === slug);
+      if (found) {
+        return Number(found.stat.frontend_question_id);
+      }
+    }
+
+    // Fallback: Query GraphQL directly for this specific slug
+    console.log(`Slug ${slug} not found in cache. Querying LeetCode GraphQL...`);
+    const query = `
+      query getQuestionDetail($titleSlug: String!) {
+        question(titleSlug: $titleSlug) {
+          questionFrontendId
+        }
+      }
+    `;
+    const body = JSON.stringify({
+      query,
+      variables: { titleSlug: slug }
+    });
+    const headers = {
+      'Content-Type': 'application/json',
+      'Referer': 'https://leetcode.com',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+    const gqlRes = await fetchJson('https://leetcode.com/graphql', {
+      method: 'POST',
+      headers,
+      body
+    });
+    const frontendId = gqlRes?.data?.question?.questionFrontendId;
+    return frontendId ? Number(frontendId) : null;
+  } catch (error) {
+    console.error(`Error looking up problem ID for slug ${slug}:`, error);
+    return null;
+  }
+}
+
+export async function fetchRecentSolvedProblemsForUser(username: string, limit: number = 20): Promise<number[]> {
+  try {
+    const query = `
+      query recentSubmissions($username: String!, $limit: Int!) {
+        recentSubmissionList(username: $username, limit: $limit) {
+          title
+          titleSlug
+          timestamp
+          statusDisplay
+          lang
+        }
+      }
+    `;
+
+    const body = JSON.stringify({
+      query,
+      variables: { username, limit }
+    });
+
+    const headers = {
+      'Content-Type': 'application/json',
+      'Referer': `https://leetcode.com/u/${username}/`,
+      'Origin': 'https://leetcode.com',
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    };
+
+    const res = await fetch('https://leetcode.com/graphql', {
+      method: 'POST',
+      headers,
+      body
+    });
+
+    if (!res.ok) {
+      console.error(`LeetCode GraphQL error: ${res.status} ${res.statusText}`);
+      return [];
+    }
+
+    const data = await res.json();
+    const submissions = data?.data?.recentSubmissionList || [];
+    
+    // Filter for Accepted submissions
+    const accepted = submissions.filter((sub: any) => sub.statusDisplay === 'Accepted');
+    
+    if (accepted.length === 0) {
+      return [];
+    }
+
+    // Map titleSlug to problem ID using our lookup
+    const problemIdsSet = new Set<number>();
+    
+    for (const sub of accepted) {
+      const slug = sub.titleSlug;
+      const problemId = await getProblemIdFromSlug(slug);
+      if (problemId) {
+        problemIdsSet.add(problemId);
+      }
+    }
+
+    // Return unique problem IDs, up to 5
+    return Array.from(problemIdsSet).slice(0, 5);
+  } catch (error) {
+    console.error(`Failed to fetch recent solved problems for user ${username}:`, error);
+    return [];
+  }
+}
+
